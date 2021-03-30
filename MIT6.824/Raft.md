@@ -22,7 +22,7 @@ The conversion rule between the three roles is simple: follower could convert to
 
 What's more, we can see that Raft is not a purely distributed consistency algorithm, because it still needs a leader. But on the other hand, this leader is not selected manually on purpose, but  selected from a group of similar servers. It is kind of centric, but not totally.
 
-## Rules of Vote
+## Rules for Vote
 
 ### Introduction
 
@@ -87,3 +87,101 @@ Once a leader has been elected, it should send heartbeat message to all other se
 In this way, as we can see, this becomes a loop: with the help of vote rules, each time the leader absent, a new leader with the most complete logs would be elected and work as its former, as long as there are more than a half of servers are still alive, for example, 3 of 5.
 
 These rules also guarantee that each leader must be in different terms in an ascending order, though inconsistent perhaps. Because in one term, all servers would be synchronized to the same term. Even some servers' term fails to be updated to the newest term, in the next round of election, the term contained in vote request would only allows those candidates having the newest term to be elected. As for the lagging servers, even if they start an election, their term is out of date and index lagging than others' in fact, and it would be impossible for them to be elected as the leader. So that Raft's term would never roll back but increase forever.
+
+## Rules for Log replication
+
+The replication process of logs is the most important part in Raft, and the most complicated part. The definition of this process looks smooth and reasonable, but it becomes pretty hard for implementation, because a lot of corner cases must be taken into consideration.
+
+In this part, I would go through from the very start status, also the most ideal status.
+
+### Ideal status
+
+Leader elected after startup send log append RPC to followers successfully without any delay. In this way, the replication on followers could always be synchronized with leader. In this scenario, everything works smoothly.
+
+### If leader crashes
+
+Leader could crash in the middle of synchronization, and in this scenario, a new leader should be elected immediately. And because of all followers' logs are the same as former leader's, nothing else is needed.
+
+### If delay exists
+
+If there are some delays between leader and followers, things could be complicated. As we discussed above, only followers with newest log could be elected as new leader. And even the new leader has been elected, it still needs to figure out each followers' status, like which log should be sent to them separately. 
+
+To apply this, each leader should maintain two data structures: an array of next index of log of each follower, and an array of index of log that could confirmed being replicated on each follower. When initialized, the records of nextIndex array should all be assigned as leader's commit index + 1, and lastApplied should be all set as 0. This difference indicates that the records in nextIndex are only estimations of followers' status, or am eager guess; and for records in lastApplied, they are solid and reliable. These records should both be updated by later communication between leader and followers.
+
+The follower should also check the validation of each log it receives, there are some steps:
+
+1. Locate the index used to mark start point. The leader would send two variables: preLogTerm and preLogIndex, to record the term and index of the start log's preceding log.
+2. After finding out the preceding log by index, the follower should check whether the term of this log is the same as preLogTerm. Because one log could be identified by term and index, once the two variables agree, the follower could confirm the log needing appended is valid and should be accepted. But if the check fails, it should be rejected.
+3. The logs are then appended after the preceding log.
+
+### If quick synchronization required
+
+We could also implement the feature that leader could send a batch of logs to followers for replication. And in this way, followers should go though the log array received, and check each log's validation. But be careful to avoid out of index error when implementing.
+
+### If network delay exists
+
+A common delay is just lagging of leader's status, but network delay is a real headache. Imagine that: some RPCs are sent in an order but received in a different order. If the follower does not check, a disaster would be caused finally, and it must be a total chaos.
+
+#### For Follower:
+
+##### When receiving request in an earlier term
+
+The follower should refuse the request directly with its current term assigned respond.
+
+##### When receiving request in a later term
+
+The follower should update its own term as new as the request's, and the check for the log append is still necessary.
+
+##### When receiving request with conflict preceding log information
+
+The follower should delete logs from the conflict point.
+
+##### When receiving request with existing logs
+
+Sometimes followers could receive requests containing logs already existing in their records, and their job is to check these log, if conflicts happen, they should truncate their own records from the conflicting point.
+
+#### For leader:
+
+##### When receiving respond with a later term
+
+This indicates the leader is out of date and it should immediately covert back to a follower.
+
+##### When receiving respond with an earlier term
+
+This indicates the respond is out of date, and the leader should ignore it and never update its records according to the respond. In fact, to guarantee leader's safety, the leader should **confirm the terms of the request it sent, the respond it received, and its own current term are the same, and only then should it accepts the respond as a valid one**.
+
+##### When receiving respond with success flag
+
+The follower then should update its records of this follower sent the respond according to the message. For example, it should update the nextIndex and lastApplied for the follower, and currently, the leader just set the nextIndex value as the last log's index it sent to the follower in this communication plus 1, and lastApplied value as the same as this last log's index.
+
+### Optimization
+
+There are some optimizations possible for Raft, and one has been mentioned above, that is to send multi logs in a single RPC, instead of one by one. Another is used when conflict happens, the follower should not just reply with a false flag, but it should provide the conflict log's term, as well as the first index of this very **term** it stores. In this way, by searching the term in its own log records, the leader could find out the preceding log of this whole term's logs, and use its information as preLogIndex and preLogTerm, and send logs following it the next time. In this way, the leader could bypass a whole term in one single communication, instead of one index per communication. But once the leader fails to find logs with this term, it should set the nextIndex value of this follower as conflict index directly.
+
+## Rules for Commit
+
+Once a log has been applied to the state machine, it is called *committed*, and it should be determined by the leader. The leader does it by confirming this very log has been replicated on a majority of servers (including itself), and this is to avoid losing committed logs. Once a log has been replicated on a majority of servers, it would never be lost unless the whole Raft system crashes.
+
+When the leader has determined the log should be applied and committed, it increase its commitIndex variable to the index of the log. In practice, it is equal to plus 1 to it. For followers, they should check the commitIndex in log append RPC it received from leader, and if this value is larger than its own, the follower knows it should commit this log, too.
+
+But it is possible that the follower does not contain the log indicated by the leader's commitIndex, then the follower should compare the commitIndex from leader, and the index of the last log appended in this RPC. The follower would choose the smaller one as the target it should commit itself to.
+
+## Lab 2B & Lab 2C
+
+In the two labs, our job is to implement a fully functional Raft with fault-tolerance ability, mainly I described above. The key points I have also discussed above, but during the process of implementation,  I did not figure it out so well, and I had to struggle with a lot of wired errors and bugs. To be honest, however, some bugs looked wired at first glance, but by analyzing the detailed log with code logic, finally I could find out why this happened and how to solve them. In this way, a detailed and well-formatted logs are very important and necessary, and I organized it like this:
+
+```bash
+[server 1, term=1, commit idnex=1] something described heer
+```
+
+This helped me a lot when testing.
+
+Another lesson is that we must check the validation of requests and responds both. At first, I only checked when receiving requests, but not for responds, and finally outdated replies ruin all the system.
+
+Again, the checking rule:
+
+**request's term = respond's term = server's current term**
+
+This could be another critical rule.
+
+A big challenge of this series labs is the random failure when testing. Because there are a bunch of random-based tests, your code could pass in one round bur fail in another, and multi tests are required to test the correctness of your code. In this way, I wrote a bash script to help this process. It could run tests in parallel by running multi tasks at the same time, and it could record how many times your code fails in these tests, and persist the printed log of this round.
