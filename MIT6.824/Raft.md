@@ -184,4 +184,94 @@ Again, the checking rule:
 
 This could be another critical rule.
 
-A big challenge of this series labs is the random failure when testing. Because there are a bunch of random-based tests, your code could pass in one round bur fail in another, and multi tests are required to test the correctness of your code. In this way, I wrote a bash script to help this process. It could run tests in parallel by running multi tasks at the same time, and it could record how many times your code fails in these tests, and persist the printed log of this round.
+A big challenge of this series labs is the random failure when testing. Because there are a bunch of random-based tests, your code could pass in one round bur fail in another, and multi tests are required to test the correctness of your code. In this way, I wrote a bash script to help this process. It could run tests in parallel by running multi tasks at the same time, and it could record how many times your code fails in these tests, and persist the printed log of this round. I attached it below:
+
+```shell
+#!/bin/bash
+count=0
+rm *.txt
+for ((i=0; i<$1; i+=$3))
+do
+    echo "$count/$1"
+
+    for ((j=1; j<=$3; j++))
+    do {
+        filename="res-$j.txt"
+        go test -run $2 -race > $filename
+        current=$(grep -o 'ok' $filename |wc -l)
+        num=$[i+j]
+        if [ $current -gt 0 ]; then
+            echo "($num) test $2 passed once"
+        else
+            echo "($num) !!!error happened when running test $2!!!"
+            newFilename="error-$num.txt"
+            mv $filename $newFilename
+        fi
+    } & 
+    done
+    wait
+
+    count=$((${count} + $3))
+    
+done
+echo "$2 tests finished: $count/$1"
+failed=$(ls error*.txt |wc -l)
+echo "test failed: $failed/$1"
+```
+
+This shell script should be used like:
+
+```bash
+./run_multi.bash 500 2C 5 2>/dev/null
+```
+
+It means running test 2C 500 times in total, and 5 tests in batch in parallel, and redirect warning flow to black hole (hide warning messages). This script would also copy logs of failed tests and store them at current directory for later check.
+
+## Rules for Snapshot and Lab 2D
+
+To reduce the size of logs in one server, each server could use snapshot machinasm to store past logs, which have been confirmed by services that these logs have been applied indeed. The basic rules have been settled in Section 7 in the paper, but in Lab 2D of 2021, the guide is far from enough. I guess it is because this lab part was just added this year, and former labs have been arranged years ago with detailed guideline from students' experience. I have to admit that I spent a lot of time trying to understand the goals and designs of this lab, and I believe it would be helpful to record them here:
+
+### The structure of Snapshot in Lab 2D
+
+The snapshot should not only include logs to be snapshotted, but the value of the last command in the snapshot. In fact, the raw data of snapshot should contain:
+
+1. **Snapshot**: logs to be put in the snapshot data
+2. **v**: the last command value in these logs
+
+The test program would use filed *v* to fetch the last command as a mark, so never forget it, though it could have little use for you.
+
+### Do not block apply channel
+
+In our lab, Raft uses a channel named `applyCh` to communicate with service (single direction, from Raft to service). In Lab 2D, after each message received from `applyCh`, the tester would determine whether logs should be trimmed and generate a new snapshot. In this way, it would invoke `Snapshot` function in our code. We must be careful about this, because the test program would wait forever until the `Snapshot` function returns, and following message sent to the channel would be blocked. **Never design the Snapshot function as a synchronization function**, unless you can guarantee that the function would be able to be called successfully after **each** log committed. 
+
+In our former design, we discussed that a server could commit its logs in batch, and we would than naturally lock these codes when commit from log *I* to log *I+n*. And as for the commitment, we should guarantee the ascending order of log commitments, so that we could not release the lock before processing these commitments. An effective way is to realse the lock and wait for snapshot signal, but it could be hard to implement, because we could not guarantee there would not be inserted other operations in these commitments, and any side-effects in potential. So I just simply put snapshot operation in a single go rountine, and it would wait for the finish of message sending of the commitment, and start doing snapshot then.
+
+### Remember to check Snapshot before accepting it
+
+The snapshot is sent from leader, and the follower should accept it, but checks are necessary: the follower should check whether the snapshot is expired or behind its current logs by comparing the term field in requests and its own, as well as `lastIncludeIndex` field with its own and `commitIndex`. The last two rules, however, have not been mentioned in the paper, but it comes naturally: The follower should refuse older snapshot, as mentioned in the Lab 2D's description, and the most obvious way is to compare the `lastIncludeIndex`, because it indicates the end point of snapshot received and the follower's current snapshot. As for the comparsion between snapshot's `lastIncludeIndex` and follower's `commitIndex`, it is because after installing the snapshot, the follower would apply the snapshot to the service, and it could be pointless and incorrect to apply snapshot behind current commit index, which is equal to commit older logs that have already been committed again.
+
+### Figure out when to apply snapshot
+
+The operation, install snapshot, could be confusing because it is not finsihed in one single function or communication round. There would be four steps:
+
+1. The follower receives the snapshot installation request, and then it checks the validation of the snapshot
+2. The follower applies the valid snapshot to service by sending the snapshot to it via channel
+3. The service then invokes `CondInstallSnapshot` of the follower to send the snpshot back to it to inform the follower that it has successfully applied the snapshot
+4. The follower could finally apply the snapshot ot itself, modify its metadata, trim its logs and other operations if needed
+
+This workflow is described in Lab 2D, but hard to understand at very first, and I believe it is because the action of installing snapshot is not finished by Raft, but by the service, and Raft only records the result of installation. That is why only after receiving signal from the service, the follower could apply the snapshot to itself (in fact, it should not be called apply, but store the snapshot in its own space).
+
+### The modification of log location rules
+
+Because there exists snapshot and logs could be trimmed, we need to calculate the real index of target log in leader and follower'a storage. 
+
+- For leader: If the index calculated of target log is negative, it proves that it does not contain the log in its alive recording, and the log is stored in its snapshot. In this way, the leader should not send `AppendEntry` RPC, but `InstallSnapshot` RPC instead.
+- For follower: If the follower receives an `AppendEntry` RPC, it should covert the `PrevLogIndex` of request to the real index in its recording. If it is neagative, then the follower should reject this RPC and indicate the leader to relocate to its alive logs.
+
+Other operations, like looking for certain logs when conflicting happens, should also take the snapshot into consideration. I would set these index as `lastIncludeIndex` realted values if a search goes beyond the start point of alive logs.
+
+## Lab running results
+
+I ran Lab 2A for 3000 times, Lab 2D for 2000 times, Lab 2B for 500 times, Lab 2D for 200 times, and Lab 2 for 100 times in total. My program passed **every test**, which makes me believe the correctness of my program, I also noticed that there are some blogs on the Internet to declare that they passed all tests in most times and only failed in several times. I have to say these scenarios indicate that their implementations could have something wrong. Some others mentioned they broke some non-mandatory rules. For example, one blogger said he modified the interval of sending heartbeat message from 100 milliseconds required in the Lab's description to a smaller value to pass tests. I would not call it a correct implementation. It proves that the requirements of Lab 2 is carefully designed and could be met within the design of Raft described in the paper and hints on the Lab's page.
+
+The student's guide posted by a former TA is also helpful, but as I mentioned above, it helps little to the newly added Lab 2D in 2021. I hope my blog can help you debug and pass all the tests. Good luck!
