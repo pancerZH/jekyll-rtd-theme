@@ -227,6 +227,16 @@ This shell script should be used like:
 
 It means running test 2C 500 times in total, and 5 tests in batch in parallel, and redirect warning flow to black hole (hide warning messages). This script would also copy logs of failed tests and store them at current directory for later check.
 
+### Milestone: Universal AppendEntry RPC
+
+A milestone of my implementation is that I made to combine different kinds of AppendEntry RPCs as one single universal RPC. The three kinds of RPCs are: (1) heartbeat message, (2) log append message and (3) commit message. The heartbeat message is used to carry on heartbeat between leader and followers; the log append message is used to send entries, or logs to followers from the leader; the last one is used by the leader to inform followers a certain log has been committed by it. These implementations should not divergence at very first, but in fact, my implementation moved forward step by step with the Lab's requirements. In Lab 2A, only heartbeat message fashion was introduced; in Lab 2B and 2C, I found it could be impossible to guarantee consistency by using normal log append message to make followers commit logs only, because some logs could not be committed before the leader receives the last log appended and forwards it to followers with commitment information, so that I introduced a separated commitment message fashion besides normal log append message fashion.
+
+The divergence of the last two message fashions is mainly because of the heartbeat message design. In fact, the heartbeat message should carry leader's commitment information, which was missed in my former design, and it had to be made up by a special-designed commitment message. It is a bad design, though, even we ignore the ugly divergence, because the commitment message could be lost during transition or for follower crashes.
+
+After I figured these out, I could feel that I have gained a deeper understanding of Raft, and by struggling and debugging for a while, I successfully combined these three kinds of message fashions as one. Just as I described above, the heartbeat message is not only used as a signal, but also carries on commitment information. With help of this, the normal log append message would not worry about data lose and related commitment transition failures. Followers would also no longer maintain different functions dealing with different messages, but one in total, and just keeping an eye on validation check of AppendEntry RPC.
+
+To be honest, the right implementation is always elegant, while the defective implementation looks ugly and redundant. 
+
 ## Rules for Snapshot and Lab 2D
 
 To reduce the size of logs in one server, each server could use snapshot machinasm to store past logs, which have been confirmed by services that these logs have been applied indeed. The basic rules have been settled in Section 7 in the paper, but in Lab 2D of 2021, the guide is far from enough. I guess it is because this lab part was just added this year, and former labs have been arranged years ago with detailed guideline from students' experience. I have to admit that I spent a lot of time trying to understand the goals and designs of this lab, and I believe it would be helpful to record them here:
