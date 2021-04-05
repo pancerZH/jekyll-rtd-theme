@@ -106,12 +106,12 @@ Leader could crash in the middle of synchronization, and in this scenario, a new
 
 If there are some delays between leader and followers, things could be complicated. As we discussed above, only followers with newest log could be elected as new leader. And even the new leader has been elected, it still needs to figure out each followers' status, like which log should be sent to them separately. 
 
-To apply this, each leader should maintain two data structures: an array of next index of log of each follower, and an array of index of log that could confirmed being replicated on each follower. When initialized, the records of nextIndex array should all be assigned as leader's commit index + 1, and lastApplied should be all set as 0. This difference indicates that the records in nextIndex are only estimations of followers' status, or am eager guess; and for records in lastApplied, they are solid and reliable. These records should both be updated by later communication between leader and followers.
+To apply this, each leader should maintain two data structures: an array of next index of log of each follower, and an array of index of log that could confirmed being replicated on each follower. When initialized, the records of `nextIndex` array should all be assigned as leader's commit index + 1, and `lastApplied` should be all set as 0. This difference indicates that the records in `nextIndex` are only estimations of followers' status, or am eager guess; and for records in `lastApplied`, they are solid and reliable. These records should both be updated by later communication between leader and followers.
 
 The follower should also check the validation of each log it receives, there are some steps:
 
-1. Locate the index used to mark start point. The leader would send two variables: preLogTerm and preLogIndex, to record the term and index of the start log's preceding log.
-2. After finding out the preceding log by index, the follower should check whether the term of this log is the same as preLogTerm. Because one log could be identified by term and index, once the two variables agree, the follower could confirm the log needing appended is valid and should be accepted. But if the check fails, it should be rejected.
+1. Locate the index used to mark start point. The leader would send two variables: `preLogTerm` and `preLogIndex`, to record the term and index of the start log's preceding log.
+2. After finding out the preceding log by index, the follower should check whether the term of this log is the same as `preLogTerm`. Because one log could be identified by term and index, once the two variables agree, the follower could confirm the log needing appended is valid and should be accepted. But if the check fails, it should be rejected.
 3. The logs are then appended after the preceding log.
 
 ### If quick synchronization required
@@ -152,26 +152,26 @@ This indicates the respond is out of date, and the leader should ignore it and n
 
 ##### When receiving respond with success flag
 
-The follower then should update its records of this follower sent the respond according to the message. For example, it should update the nextIndex and lastApplied for the follower, and currently, the leader just set the nextIndex value as the last log's index it sent to the follower in this communication plus 1, and lastApplied value as the same as this last log's index.
+The follower then should update its records of this follower sent the respond according to the message. For example, it should update the `nextIndex` and `lastApplied` for the follower, and currently, the leader just set the `nextIndex` value as the last log's index it sent to the follower in this communication plus 1, and `lastApplied` value as the same as this last log's index.
 
 ### Optimization
 
-There are some optimizations possible for Raft, and one has been mentioned above, that is to send multi logs in a single RPC, instead of one by one. Another is used when conflict happens, the follower should not just reply with a false flag, but it should provide the conflict log's term, as well as the first index of this very **term** it stores. In this way, by searching the term in its own log records, the leader could find out the preceding log of this whole term's logs, and use its information as preLogIndex and preLogTerm, and send logs following it the next time. In this way, the leader could bypass a whole term in one single communication, instead of one index per communication. But once the leader fails to find logs with this term, it should set the nextIndex value of this follower as conflict index directly.
+There are some optimizations possible for Raft, and one has been mentioned above, that is to send multi logs in a single RPC, instead of one by one. Another is used when conflict happens, the follower should not just reply with a false flag, but it should provide the conflict log's term, as well as the first index of this very **term** it stores. In this way, by searching the term in its own log records, the leader could find out the preceding log of this whole term's logs, and use its information as `preLogIndex` and `preLogTerm`, and send logs following it the next time. In this way, the leader could bypass a whole term in one single communication, instead of one index per communication. But once the leader fails to find logs with this term, it should set the `nextIndex` value of this follower as conflict index directly.
 
 ## Rules for Commit
 
 Once a log has been applied to the state machine, it is called *committed*, and it should be determined by the leader. The leader does it by confirming this very log has been replicated on a majority of servers (including itself), and this is to avoid losing committed logs. Once a log has been replicated on a majority of servers, it would never be lost unless the whole Raft system crashes.
 
-When the leader has determined the log should be applied and committed, it increase its commitIndex variable to the index of the log. In practice, it is equal to plus 1 to it. For followers, they should check the commitIndex in log append RPC it received from leader, and if this value is larger than its own, the follower knows it should commit this log, too.
+When the leader has determined the log should be applied and committed, it increase its `commitIndex` variable to the index of the log. In practice, it is equal to plus 1 to it. For followers, they should check the `commitIndex` in log append RPC it received from leader, and if this value is larger than its own, the follower knows it should commit this log, too.
 
-But it is possible that the follower does not contain the log indicated by the leader's commitIndex, then the follower should compare the commitIndex from leader, and the index of the last log appended in this RPC. The follower would choose the smaller one as the target it should commit itself to.
+But it is possible that the follower does not contain the log indicated by the leader's `commitIndex`, then the follower should compare the `commitIndex` from leader, and the index of the last log appended in this RPC. The follower would choose the smaller one as the target it should commit itself to.
 
 ## Lab 2B & Lab 2C
 
 In the two labs, our job is to implement a fully functional Raft with fault-tolerance ability, mainly I described above. The key points I have also discussed above, but during the process of implementation,  I did not figure it out so well, and I had to struggle with a lot of wired errors and bugs. To be honest, however, some bugs looked wired at first glance, but by analyzing the detailed log with code logic, finally I could find out why this happened and how to solve them. In this way, a detailed and well-formatted logs are very important and necessary, and I organized it like this:
 
-```bash
-[server 1, term=1, commit idnex=1] something described heer
+```json
+[server 1, term=1, commit idnex=1] something described here
 ```
 
 This helped me a lot when testing.
@@ -226,6 +226,8 @@ This shell script should be used like:
 ```
 
 It means running test 2C 500 times in total, and 5 tests in batch in parallel, and redirect warning flow to black hole (hide warning messages). This script would also copy logs of failed tests and store them at current directory for later check.
+
+A reminder: do not make your computer or laptop turn into sleep mode while running tests, because the test could not guarantee return back to normal after being waken up.
 
 ### Milestone: Universal AppendEntry RPC
 
@@ -282,6 +284,6 @@ Other operations, like looking for certain logs when conflicting happens, should
 
 ## Lab running results
 
-I ran Lab 2A for 3000 times, Lab 2D for 2000 times, Lab 2B for 500 times, Lab 2D for 200 times, and Lab 2 for 100 times in total. My program passed **every test**, which makes me believe the correctness of my program, I also noticed that there are some blogs on the Internet to declare that they passed all tests in most times and only failed in several times. I have to say these scenarios indicate that their implementations could have something wrong. Some others mentioned they broke some non-mandatory rules. For example, one blogger said he modified the interval of sending heartbeat message from 100 milliseconds required in the Lab's description to a smaller value to pass tests. I would not call it a correct implementation. It proves that the requirements of Lab 2 is carefully designed and could be met within the design of Raft described in the paper and hints on the Lab's page.
+I ran Lab 2A for 3000 times, Lab 2B for 2000 times, Lab 2C for 500 times, Lab 2D for 200 times, and Lab 2 for 100 times as a whole in total. My program passed **every test**, which makes me believe the correctness of my program, I also noticed that there are some blogs on the Internet to declare that they passed all tests in most times and only failed in several times. I have to say these scenarios indicate that their implementations could have something wrong. Some others mentioned they broke some non-mandatory rules. For example, one blogger said he modified the interval of sending heartbeat message from 100 milliseconds required in the Lab's description to a smaller value to pass tests. I would not call it a correct implementation. It proves that the requirements of Lab 2 is carefully designed and could be met within the design of Raft described in the paper and hints on the Lab's page.
 
 The student's guide posted by a former TA is also helpful, but as I mentioned above, it helps little to the newly added Lab 2D in 2021. I hope my blog can help you debug and pass all the tests. Good luck!
