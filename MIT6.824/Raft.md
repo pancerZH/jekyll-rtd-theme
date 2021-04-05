@@ -174,7 +174,7 @@ In the two labs, our job is to implement a fully functional Raft with fault-tole
 [server 1, term=1, commit idnex=1] something described here
 ```
 
-This helped me a lot when testing.
+This helped me a lot when testing, and I also attached a complete log of running Lab 2 [here](./lab2-result.txt).
 
 Another lesson is that we must check the validation of requests and responds both. At first, I only checked when receiving requests, but not for responds, and finally outdated replies ruin all the system.
 
