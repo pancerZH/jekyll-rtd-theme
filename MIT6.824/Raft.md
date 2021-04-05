@@ -170,11 +170,11 @@ But it is possible that the follower does not contain the log indicated by the l
 
 In the two labs, our job is to implement a fully functional Raft with fault-tolerance ability, mainly I described above. The key points I have also discussed above, but during the process of implementation,  I did not figure it out so well, and I had to struggle with a lot of wired errors and bugs. To be honest, however, some bugs looked wired at first glance, but by analyzing the detailed log with code logic, finally I could find out why this happened and how to solve them. In this way, a detailed and well-formatted logs are very important and necessary, and I organized it like this:
 
-```json
+```
 [server 1, term=1, commit idnex=1] something described here
 ```
 
-This helped me a lot when testing, and I also attached a complete log of running Lab 2 [here](./lab2-result.txt).
+This helped me a lot when testing, and I also attached a complete log of running Lab 2 [here](./lab2-result.txt). This log file contains more than 30000 lines of printed logs, and several additional logs indicating testing procedures I added in test files.
 
 Another lesson is that we must check the validation of requests and responds both. At first, I only checked when receiving requests, but not for responds, and finally outdated replies ruin all the system.
 
