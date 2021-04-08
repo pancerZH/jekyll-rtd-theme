@@ -1,3 +1,7 @@
+---
+sort: 5
+---
+
 # ZooKeeper
 
 This blog is based on the [paper](https://pdos.csail.mit.edu/6.824/papers/zookeeper.pdf) required by MIT 6.824 course, which introduces the concepts and usage of ZooKeeper.
