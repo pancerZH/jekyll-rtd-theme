@@ -2,7 +2,7 @@
 sort: 6
 ---
 
-# Lab 3
+# Key-Value Raft & Lab 3
 
 Lab 3 is based on the implementation of Raft in Lab2, and divided into two parts. The goal of Lab3 is to build a fault-tolerant Key-Value database with Raft, so we need to build a service interacting with Raft instances.
 
