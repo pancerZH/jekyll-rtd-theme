@@ -88,13 +88,9 @@ When implementing Lab 3, I found some flaws in my former design of Raft:
 
    The solution is easy, that is to hold the lock when receiving *Install Snapshot Request*, and release it **after** installing the snapshot. Then the diagram should look like:
 
-   ![Snapshot-Solved](./img/SnapshotInstall-Solved.png)
-
-in this way, there will never be deadlocks in such scenarios, because the snapshot installation is now **atomic**. The correctness is guaranteed by running Lab 2 tests for multiple times.
-
-After consideration, however, I found the above solution had a flaw. What if the client fails to call the `CondInstallSnapshot` function after it reads message from the channel? In this situation, the Raft instance would be blocked forever, even the client process restarts later, it could not recall the function to release the lock. Even though this could happen rarely, it is still a severe flaw to block the whole process. In this way, I came up with a better solution: making use of goroutine to deal with snapshot installation and wait for lock, and let the `CondInstallSnapshot` function return immediately:
-
-![Snapshot-Another](./img/SnapshotInstall-Another.png)
-
-This solution avoids former situation, because even though the client fails to call the `CondInstallSnapshot` function, the Raft instance would not be blocked. Furthermore, both processes, the Raft instance and client, would not block each other forever after crashing and restarting. The lock of Raft instance does not rely on client's availability any more, which improves the availability of the whole system.
+   ![Snapshot-Solved](./img/SnapshotInstall-Solved.png)in this way, there will never be deadlocks in such scenarios, because the snapshot installation is now **atomic**. The correctness is guaranteed by running Lab 2 tests for multiple times.
+   
+   **[Improvement]**
+   
+   After consideration, however, I found the above solution had a flaw. What if the client fails to call the `CondInstallSnapshot` function after it reads message from the channel? In this situation, the Raft instance would be blocked forever, even the client process restarts later, it could not recall the function to release the lock. Even though this could happen rarely, it is still a severe flaw to block the whole process. In this way, I came up with a better solution: making use of goroutine to deal with snapshot installation and wait for lock, and let the `CondInstallSnapshot` function return immediately:![Snapshot-Another](./img/SnapshotInstall-Another.png)This solution avoids former situation, because even though the client fails to call the `CondInstallSnapshot` function, the Raft instance would not be blocked. Furthermore, both processes, the Raft instance and client, would not block each other forever after crashing and restarting. The lock of Raft instance does not rely on client's availability any more, which improves the availability of the whole system.
 
