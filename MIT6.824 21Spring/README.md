@@ -2,7 +2,7 @@
 sort: 1
 ---
 
-# MIT6.824
+# MIT6.824 21Spring
 
 Brief summary of knowledge in learning.
 
