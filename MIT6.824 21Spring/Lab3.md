@@ -120,6 +120,26 @@ The method is to guarantee all the inner channels would be used **only once** at
 
 The reason I used the channel with buffer is that: in a corner case, say there is a delay of respond from Raft, and the waiting request is timeout. The related inner channel is going to be removed from map and wait for garbage collection. But just before this happens (before the request holds the lock, to be more specifically), the respond comes to the external channel and the listener catches it, holds the lock successfully, and picks up the inner channel to send a message via it. The inner channel just picked up, however, has been abandoned in fact, and if there is no buffer, the message sent via it would not be consumed, and the listener would be stuck there, which forms a deadlock. In this way, with the buffer, no matter the channel has been abandoned for timeout reason or not, the listener would move on immediately after sending a message via it. And because of the guarantee of that an inner channel would be used at most once, 1is enough for the buffer size.
 
+### Details could be ignored
+
+At very first, I used Raft's `Start` function to get the index and check whether it is the leader firstly, and then I initialized a channel and recorded the channel in a map, as well as the expected command. Though working fine without leading any failure in Lab tests, it is still a bad design, or even just a wrong design. This is because the commit of the very command **could** come to the listener prior to the map-related values set. In fact, it always costs more time for Raft to commit the command than setting these channels and records, but we could not exclude the possibility.
+
+In this way, I changed to use Raft's `State` function to check whether this instance is leader or not. If so, I would then firstly initialize maps and then invoke the `Start` function. Instead of using index returned by `Start` as maps' key, I used client id and sequence is, and the map looks like:
+
+```
+channelMap
+|--requestMap1 (clientId: xxx)
+|----channel1 (seqId: 1)
+|----channel2 (seqId: 2)
+|--requestMap2 (clientId: yyy)
+|----channel3 (seqId: 2)
+|----channel4 (seqId: 3)
+```
+
+ I also extracted common functions to deal with map-related operations, including initialization, checking, deleting and internal message sending.
+
+No matter what design we want to take, the key is unmodified: make sure each request has at least one respond. In the former design, there could an internal message for **all** duplicated client requests; in the latter design, there would only be only one internal message for the **latest** request among duplicated client requests. So that in both designs, the key could be guaranteed, though in different formats.
+
 ## Lab Result
 
 Lab 3 is much easier compared to Lab 2, if the implementation of Raft is solid enough. Or it would be a nightmare to face both logs printed by Raft and server side to analysis their behaviors to find out the bug. It is important to believe your Raft instance would always respond correctly, and only then could you focus on the server side.
