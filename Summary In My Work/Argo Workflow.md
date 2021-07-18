@@ -113,7 +113,7 @@ This step involves Helm operation, which requires administrative rights. This is
 
 ## 5. The Whole Diagram
 
-![workflow](./img/workflow.png)
+![workflow](./img/Workflow.png)
 
 ## 6. Future Work
 
